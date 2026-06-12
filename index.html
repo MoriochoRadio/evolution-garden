@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>진화의 정원 — 신경망 생태계 시뮬레이터</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#131722; --panel2:#1a2030; --line:#252d40;
+    --text:#dde3f0; --dim:#8a93a8; --accent:#5b8cff; --green:#4cd17e; --red:#ff6b6b;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); font-family:'Segoe UI','Malgun Gothic',sans-serif; font-size:13px;}
+  #app{display:flex; flex-direction:column; height:100%;}
+
+  /* ── 상단 바 ── */
+  #topbar{display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap;}
+  #topbar h1{font-size:15px; font-weight:600; margin-right:8px; letter-spacing:.5px;}
+  #topbar h1 span{color:var(--accent);}
+  .btn{background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12.5px; transition:background .15s;}
+  .btn:hover{background:#232b40;}
+  .btn.on{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .btn.danger:hover{background:#5a2330; border-color:#a04;}
+  .sep{width:1px; height:22px; background:var(--line); margin:0 4px;}
+  .stat{color:var(--dim); font-size:12px; white-space:nowrap;}
+  .stat b{color:var(--text); font-variant-numeric:tabular-nums;}
+  .stat .h{color:#6db1ff;} .stat .c{color:var(--red);} .stat .p{color:var(--green);}
+
+  /* ── 메인 ── */
+  #main{display:flex; flex:1; min-height:0;}
+  #worldwrap{flex:1; position:relative; min-width:0;}
+  #world{position:absolute; inset:0; width:100%; height:100%; cursor:crosshair;}
+  #hint{position:absolute; left:12px; bottom:10px; color:var(--dim); font-size:11.5px; pointer-events:none; text-shadow:0 1px 3px #000;}
+
+  /* ── 사이드 패널 ── */
+  #side{width:300px; background:var(--panel); border-left:1px solid var(--line); display:flex; flex-direction:column;}
+  #tabs{display:flex; border-bottom:1px solid var(--line);}
+  #tabs button{flex:1; background:none; border:none; color:var(--dim); padding:9px 0; cursor:pointer; font-size:12.5px; border-bottom:2px solid transparent;}
+  #tabs button.on{color:var(--text); border-bottom-color:var(--accent);}
+  .panel{flex:1; overflow-y:auto; padding:12px; display:none;}
+  .panel.on{display:block;}
+  .panel h3{font-size:12px; color:var(--dim); font-weight:600; margin:14px 0 6px; text-transform:uppercase; letter-spacing:.5px;}
+  .panel h3:first-child{margin-top:0;}
+  canvas.chart{width:100%; background:var(--panel2); border-radius:8px; border:1px solid var(--line); display:block;}
+
+  /* 인스펙터 */
+  #insp-empty{color:var(--dim); text-align:center; padding:40px 10px; line-height:1.7;}
+  .trait{margin:7px 0;}
+  .trait .lbl{display:flex; justify-content:space-between; font-size:11.5px; color:var(--dim); margin-bottom:3px;}
+  .trait .lbl b{color:var(--text);}
+  .bar{height:6px; background:var(--panel2); border-radius:3px; overflow:hidden;}
+  .bar i{display:block; height:100%; border-radius:3px; background:var(--accent); transition:width .2s;}
+  #insp-head{display:flex; align-items:center; gap:10px; margin-bottom:8px;}
+  #insp-swatch{width:34px; height:34px; border-radius:50%; border:2px solid #fff3; flex-shrink:0;}
+  #insp-title{font-size:14px; font-weight:600;}
+  #insp-sub{font-size:11.5px; color:var(--dim);}
+  .row2{display:flex; gap:8px;}
+  .row2>div{flex:1; background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:7px 9px; text-align:center;}
+  .row2 .v{font-size:15px; font-weight:600;} .row2 .k{font-size:10.5px; color:var(--dim);}
+  label.chk{display:flex; align-items:center; gap:6px; color:var(--dim); font-size:12px; cursor:pointer; margin:8px 0;}
+
+  /* 설정 */
+  .slider{margin:10px 0;}
+  .slider .lbl{display:flex; justify-content:space-between; font-size:12px; color:var(--dim); margin-bottom:2px;}
+  .slider .lbl b{color:var(--text); font-variant-numeric:tabular-nums;}
+  input[type=range]{width:100%; accent-color:var(--accent);}
+
+  /* 로그 & 가이드 */
+  #log{font-size:11.5px; color:var(--dim); line-height:1.8;}
+  #log .t{color:#566; margin-right:6px; font-variant-numeric:tabular-nums;}
+  #guide{line-height:1.75; font-size:12.5px; color:#c6cddd;}
+  #guide b{color:var(--text);}
+  #guide p{margin:8px 0;}
+  .legend{display:flex; gap:12px; font-size:11px; color:var(--dim); margin-top:4px;}
+  .legend i{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <h1>진화의 <span>정원</span></h1>
+    <button class="btn" id="btnPause">⏸ 일시정지</button>
+    <span class="stat">속도</span>
+    <button class="btn spd on" data-s="1">1×</button>
+    <button class="btn spd" data-s="3">3×</button>
+    <button class="btn spd" data-s="8">8×</button>
+    <button class="btn spd" data-s="25">25×</button>
+    <div class="sep"></div>
+    <span class="stat">틱 <b id="sTick">0</b></span>
+    <span class="stat">개체 <b id="sPop">0</b> (<b class="h" id="sHerb">0</b> 초식 / <b class="c" id="sCarn">0</b> 육식)</span>
+    <span class="stat">식물 <b class="p" id="sPlant">0</b></span>
+    <span class="stat">최고 세대 <b id="sGen">0</b></span>
+    <div class="sep"></div>
+    <span class="stat">도구</span>
+    <button class="btn tool on" data-t="select">👆 선택</button>
+    <button class="btn tool" data-t="plant">🌱 먹이</button>
+    <button class="btn tool" data-t="zap">⚡ 번개</button>
+    <div class="sep"></div>
+    <button class="btn" id="btnSave">💾 저장</button>
+    <button class="btn" id="btnLoad">📂 불러오기</button>
+    <button class="btn danger" id="btnReset">🔄 재시작</button>
+  </div>
+  <div id="main">
+    <div id="worldwrap">
+      <canvas id="world"></canvas>
+      <div id="hint">드래그: 이동 · 휠: 확대/축소 · 클릭: 생명체 선택 · Space: 일시정지</div>
+    </div>
+    <div id="side">
+      <div id="tabs">
+        <button class="on" data-p="stats">통계</button>
+        <button data-p="insp">관찰</button>
+        <button data-p="set">설정</button>
+        <button data-p="guide">가이드</button>
+      </div>
+
+      <div class="panel on" id="p-stats">
+        <h3>개체군 변화</h3>
+        <canvas class="chart" id="popChart" width="276" height="120"></canvas>
+        <div class="legend"><span><i style="background:#4cd17e"></i>식물÷8</span><span><i style="background:#6db1ff"></i>초식</span><span><i style="background:#ff6b6b"></i>육식</span></div>
+        <h3>식성 분포 — 종 분화 관찰</h3>
+        <canvas class="chart" id="dietChart" width="276" height="90"></canvas>
+        <div class="legend"><span>← 완전 초식</span><span style="margin-left:auto">완전 육식 →</span></div>
+        <h3>형질 지도 (속도 × 크기, 색 = 식성)</h3>
+        <canvas class="chart" id="traitChart" width="276" height="130"></canvas>
+        <h3>사건 기록</h3>
+        <div id="log"></div>
+      </div>
+
+      <div class="panel" id="p-insp">
+        <div id="insp-empty">세계에서 생명체를 클릭하면<br>유전자와 신경망(뇌)을<br>실시간으로 들여다볼 수 있습니다.</div>
+        <div id="insp-body" style="display:none">
+          <div id="insp-head">
+            <div id="insp-swatch"></div>
+            <div><div id="insp-title"></div><div id="insp-sub"></div></div>
+          </div>
+          <label class="chk"><input type="checkbox" id="chkFollow"> 카메라로 따라가기</label>
+          <div class="row2">
+            <div><div class="v" id="iAge">0</div><div class="k">나이</div></div>
+            <div><div class="v" id="iKills">0</div><div class="k">사냥</div></div>
+            <div><div class="v" id="iKids">0</div><div class="k">자손</div></div>
+          </div>
+          <div class="trait"><div class="lbl">에너지 <b id="iEnergy"></b></div><div class="bar"><i id="bEnergy" style="background:#4cd17e"></i></div></div>
+          <h3>유전 형질</h3>
+          <div class="trait"><div class="lbl">식성 (초식 ↔ 육식) <b id="iDiet"></b></div><div class="bar"><i id="bDiet" style="background:linear-gradient(90deg,#6db1ff,#ff6b6b)"></i></div></div>
+          <div class="trait"><div class="lbl">크기 <b id="iSize"></b></div><div class="bar"><i id="bSize"></i></div></div>
+          <div class="trait"><div class="lbl">최고 속도 <b id="iSpeed"></b></div><div class="bar"><i id="bSpeed"></i></div></div>
+          <div class="trait"><div class="lbl">감각 범위 <b id="iSense"></b></div><div class="bar"><i id="bSense"></i></div></div>
+          <h3>신경망 (뇌) — 실시간 활성</h3>
+          <canvas class="chart" id="brainCanvas" width="276" height="230"></canvas>
+        </div>
+      </div>
+
+      <div class="panel" id="p-set">
+        <h3>환경</h3>
+        <div class="slider"><div class="lbl">식물 생장률 <b id="vPlant"></b></div><input type="range" id="rPlant" min="0.2" max="4" step="0.1"></div>
+        <div class="slider"><div class="lbl">식물 최대치 <b id="vMaxP"></b></div><input type="range" id="rMaxP" min="200" max="1600" step="50"></div>
+        <h3>진화</h3>
+        <div class="slider"><div class="lbl">돌연변이율 <b id="vMut"></b></div><input type="range" id="rMut" min="0" max="0.30" step="0.01"></div>
+        <div class="slider"><div class="lbl">개체수 상한 <b id="vCap"></b></div><input type="range" id="rCap" min="60" max="400" step="10"></div>
+        <label class="chk"><input type="checkbox" id="chkRestock" checked> 절멸 시 자동으로 새 생명 투입</label>
+      </div>
+
+      <div class="panel" id="p-guide">
+        <div id="guide">
+          <p><b>이 세계의 규칙</b></p>
+          <p>모든 생명체는 <b>137개의 가중치로 이루어진 신경망(뇌)</b>을 갖고 태어납니다. 뇌는 가장 가까운 먹이와 이웃의 방향·거리·크기를 입력받아 회전과 추진을 결정합니다. 아무도 이들에게 행동을 가르치지 않았습니다 — 잘 움직이는 뇌를 가진 개체가 살아남아 번식할 뿐입니다.</p>
+          <p>움직임·크기·감각에는 모두 <b>에너지 비용</b>이 듭니다. 에너지가 차면 자손을 남기는데, 이때 뇌와 형질에 <b>돌연변이</b>가 섞입니다.</p>
+          <p><b>관찰 포인트</b></p>
+          <p>① 초반: 무작위 뇌 탓에 제자리를 도는 개체가 많습니다. 수백 틱 안에 먹이를 향해 직진하는 혈통이 우세해집니다.</p>
+          <p>② 중반: <b>식성 분포</b> 차트를 보세요. 분포가 둘로 갈라지면 — 초식과 포식자로 <b>종 분화</b>가 일어난 것입니다. 사체(붉은 점)를 노리는 청소부 혈통이 다리를 놓아줍니다.</p>
+          <p>③ 장기: 포식자가 늘면 초식이 줄고, 그러면 포식자도 굶습니다. 개체군 차트에 <b>포식자-피식자 진동</b>(로트카-볼테라 곡선)이 나타나는지 확인하세요.</p>
+          <p><b>실험해 보기</b></p>
+          <p>돌연변이율을 0으로 — 진화가 멈춥니다. 식물 생장률을 낮춰 기근을 — 작고 느린 절약형 개체가 우세해집니다. ⚡ 번개로 우점종을 솎아내고 생태계가 어떻게 재편되는지 보세요.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<input type="file" id="fileLoad" accept=".json" style="display:none">
+
+<script>
+'use strict';
+/* ════════════════════════════════════════════════════════════
+   1부. 시뮬레이션 코어 — DOM에 의존하지 않음 (헤드리스 검증 가능)
+   ════════════════════════════════════════════════════════════ */
+const WORLD_W = 2400, WORLD_H = 1600;
+const N_IN = 12, N_H = 9, N_OUT = 2;
+const BRAIN_LEN = N_H * (N_IN + 1) + N_OUT * (N_H + 1); // 137
+
+function gauss() { // Box–Muller
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+const sig = x => 1 / (1 + Math.exp(-x));
+
+/* ── 공간 해시 그리드 ── */
+class Grid {
+  constructor(cell) { this.cell = cell; this.map = new Map(); }
+  clear() { this.map.clear(); }
+  insert(o) {
+    const k = ((o.x / this.cell) | 0) + ((o.y / this.cell) | 0) * 4096;
+    let a = this.map.get(k);
+    if (!a) { a = []; this.map.set(k, a); }
+    a.push(o);
+  }
+  query(x, y, r, out) {
+    out.length = 0;
+    const c = this.cell;
+    const x0 = Math.max(0, ((x - r) / c) | 0), x1 = ((x + r) / c) | 0;
+    const y0 = Math.max(0, ((y - r) / c) | 0), y1 = ((y + r) / c) | 0;
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+      const a = this.map.get(cx + cy * 4096);
+      if (a) for (let i = 0; i < a.length; i++) out.push(a[i]);
+    }
+    return out;
+  }
+}
+
+/* ── 유전자 ── */
+function randomGenome() {
+  const brain = new Array(BRAIN_LEN);
+  for (let i = 0; i < BRAIN_LEN; i++) brain[i] = gauss() * 0.6;
+  return {
+    hue: Math.random() * 360,
+    size: 0.7 + Math.random() * 0.6,
+    speed: 1.2 + Math.random() * 1.6,
+    sense: 60 + Math.random() * 60,
+    diet: Math.random() * 0.35,
+    reproT: 0.6 + Math.random() * 0.25,
+    brain
+  };
+}
+function mutateGenome(g, rate) {
+  const n = {
+    hue: (g.hue + gauss() * 6 + 360) % 360,
+    size: g.size, speed: g.speed, sense: g.sense, diet: g.diet, reproT: g.reproT,
+    brain: g.brain.slice()
+  };
+  for (let i = 0; i < BRAIN_LEN; i++)
+    if (Math.random() < rate) n.brain[i] += gauss() * 0.45;
+  if (Math.random() < rate * 4) n.size = clamp(n.size * (1 + gauss() * 0.09), 0.5, 2.0);
+  if (Math.random() < rate * 4) n.speed = clamp(n.speed * (1 + gauss() * 0.09), 0.6, 4.0);
+  if (Math.random() < rate * 4) n.sense = clamp(n.sense * (1 + gauss() * 0.09), 35, 170);
+  if (Math.random() < rate * 4) n.diet = clamp(n.diet + gauss() * 0.07, 0, 1);
+  if (Math.random() < rate * 4) n.reproT = clamp(n.reproT + gauss() * 0.04, 0.55, 0.95);
+  return n;
+}
+
+/* ── 신경망 ── */
+function brainForward(w, inp, act) {
+  let p = 0;
+  for (let j = 0; j < N_H; j++) {
+    let s = 0;
+    for (let i = 0; i < N_IN; i++) s += w[p++] * inp[i];
+    s += w[p++];
+    act.h[j] = Math.tanh(s);
+  }
+  for (let k = 0; k < N_OUT; k++) {
+    let s = 0;
+    for (let j = 0; j < N_H; j++) s += w[p++] * act.h[j];
+    s += w[p++];
+    act.o[k] = s;
+  }
+  return act.o;
+}
+
+/* ── 생명체 ── */
+let NEXT_ID = 1;
+function newCreature(g, x, y, energy, gen) {
+  return {
+    id: NEXT_ID++, g, x, y,
+    dir: Math.random() * Math.PI * 2,
+    energy, gen, age: 0, kills: 0, children: 0,
+    maxE: 70 + 55 * g.size,
+    maxAge: 2600 + Math.random() * 900,
+    bite: 0, dead: false, eaten: false,
+    phase: Math.random() * Math.PI * 2,
+    act: { in: new Array(N_IN).fill(0), h: new Array(N_H).fill(0), o: new Array(N_OUT).fill(0) }
+  };
+}
+
+/* ── 세계 상태 ── */
+const S = {
+  tick: 0, creatures: [], foods: [], births: [], plantAcc: 0,
+  maxGen: 0, selected: null,
+  settings: { plantRate: 1.4, maxPlants: 900, popCap: 260, mutRate: 0.07, autoRestock: true },
+  hist: { t: [], plant: [], herb: [], carn: [] },
+  events: []
+};
+const foodGrid = new Grid(90), creGrid = new Grid(90);
+const tmpA = [], tmpIn = new Array(N_IN).fill(0);
+
+function logEvent(msg) {
+  S.events.push({ t: S.tick, msg });
+  if (S.events.length > 8) S.events.shift();
+}
+
+function spawnPlant(x, y) {
+  if (x === undefined) {
+    // 군집 생성: 기존 식물 근처에 자랄 확률 60% → 풀밭 패치 형성
+    const plants = S.foods;
+    if (plants.length > 10 && Math.random() < 0.6) {
+      const p = plants[(Math.random() * plants.length) | 0];
+      if (!p.meat) {
+        x = clamp(p.x + gauss() * 45, 5, WORLD_W - 5);
+        y = clamp(p.y + gauss() * 45, 5, WORLD_H - 5);
+      }
+    }
+    if (x === undefined) { x = 5 + Math.random() * (WORLD_W - 10); y = 5 + Math.random() * (WORLD_H - 10); }
+  }
+  S.foods.push({ x, y, e: 26 + Math.random() * 10, meat: false });
+}
+
+function dropMeat(c) {
+  const n = c.eaten ? 3 : 2;
+  for (let i = 0; i < n; i++) {
+    if (S.foods.length > S.settings.maxPlants + 400) break;
+    S.foods.push({
+      x: clamp(c.x + gauss() * 12, 5, WORLD_W - 5),
+      y: clamp(c.y + gauss() * 12, 5, WORLD_H - 5),
+      e: 18 + 14 * c.g.size, meat: true
+    });
+  }
+}
+
+function foodEff(food, g) { // 먹이 효율: 식성에 따라
+  return food.meat ? Math.min(1, 0.15 + 0.9 * g.diet) : Math.max(0.05, 1 - 1.05 * g.diet);
+}
+
+function updateCreature(c) {
+  const g = c.g;
+  /* 지각: 가장 가치 있는 먹이 + 가장 가까운 이웃 */
+  let nf = null, nfd = 1e9, nfScore = 1e9;
+  foodGrid.query(c.x, c.y, g.sense, tmpA);
+  for (let i = 0; i < tmpA.length; i++) {
+    const f = tmpA[i];
+    const dx = f.x - c.x, dy = f.y - c.y, d = Math.sqrt(dx * dx + dy * dy);
+    if (d > g.sense) continue;
+    const score = d / (foodEff(f, g) + 0.01);
+    if (score < nfScore) { nfScore = score; nf = f; nfd = d; }
+  }
+  let nc = null, ncd = 1e9;
+  creGrid.query(c.x, c.y, g.sense, tmpA);
+  for (let i = 0; i < tmpA.length; i++) {
+    const o = tmpA[i];
+    if (o === c || o.dead) continue;
+    const dx = o.x - c.x, dy = o.y - c.y, d = Math.sqrt(dx * dx + dy * dy);
+    if (d < ncd && d <= g.sense) { ncd = d; nc = o; }
+  }
+
+  /* 신경망 입력 */
+  const inp = tmpIn;
+  inp.fill(0);
+  inp[0] = 1;
+  inp[1] = c.energy / c.maxE;
+  if (nf) {
+    const a = Math.atan2(nf.y - c.y, nf.x - c.x) - c.dir;
+    inp[2] = Math.sin(a); inp[3] = Math.cos(a);
+    inp[4] = 1 - nfd / g.sense;
+    inp[11] = nf.meat ? 1 : -1;
+  }
+  if (nc) {
+    const a = Math.atan2(nc.y - c.y, nc.x - c.x) - c.dir;
+    inp[5] = Math.sin(a); inp[6] = Math.cos(a);
+    inp[7] = 1 - ncd / g.sense;
+    inp[8] = clamp(nc.g.size / g.size, 0, 2) - 1;
+    inp[9] = nc.g.diet * 2 - 1;
+  }
+  inp[10] = Math.sin(S.tick * 0.05 + c.phase);
+  for (let i = 0; i < N_IN; i++) c.act.in[i] = inp[i];
+
+  const o = brainForward(g.brain, inp, c.act);
+  const turn = Math.tanh(o[0]), thrust = sig(o[1]);
+
+  /* 이동 */
+  c.dir += turn * 0.3;
+  const sp = thrust * g.speed;
+  c.x += Math.cos(c.dir) * sp;
+  c.y += Math.sin(c.dir) * sp;
+  const r = 5 * g.size + 3;
+  if (c.x < r) { c.x = r; c.dir = Math.PI - c.dir; }
+  if (c.x > WORLD_W - r) { c.x = WORLD_W - r; c.dir = Math.PI - c.dir; }
+  if (c.y < r) { c.y = r; c.dir = -c.dir; }
+  if (c.y > WORLD_H - r) { c.y = WORLD_H - r; c.dir = -c.dir; }
+
+  /* 신진대사 */
+  c.energy -= 0.045 + 0.028 * g.size * g.size + 0.018 * sp * sp * g.size + 0.0008 * g.sense;
+  c.age++;
+
+  /* 먹기 */
+  if (nf && nfd < r + 4 && nf.e > 0) {
+    c.energy = Math.min(c.maxE, c.energy + nf.e * foodEff(nf, g));
+    nf.e = 0;
+  }
+  /* 사냥 */
+  if (nc && g.diet > 0.25 && c.bite <= 0 && ncd < r + 5 * nc.g.size + 4 && g.size > nc.g.size * 0.7) {
+    c.bite = 16;
+    const dmg = 14 + 12 * g.size;
+    nc.energy -= dmg;
+    c.energy = Math.min(c.maxE, c.energy + dmg * (0.15 + 0.85 * g.diet));
+    if (nc.energy <= 0 && !nc.dead) { nc.dead = true; nc.eaten = true; c.kills++; }
+  }
+  if (c.bite > 0) c.bite--;
+
+  /* 죽음 */
+  if (c.energy <= 0 || c.age > c.maxAge) { c.dead = true; return; }
+
+  /* 번식 */
+  if (c.energy > g.reproT * c.maxE && c.age > 140 &&
+      S.creatures.length + S.births.length < S.settings.popCap) {
+    const childE = c.energy * 0.3;
+    c.energy *= 0.55;
+    const ng = mutateGenome(g, S.settings.mutRate);
+    const ch = newCreature(ng,
+      clamp(c.x + gauss() * 14, 8, WORLD_W - 8),
+      clamp(c.y + gauss() * 14, 8, WORLD_H - 8),
+      childE, c.gen + 1);
+    if (ch.gen > S.maxGen) S.maxGen = ch.gen;
+    S.births.push(ch);
+    c.children++;
+  }
+}
+
+function sampleStats() {
+  let plant = 0, herb = 0, carn = 0;
+  for (const f of S.foods) if (!f.meat) plant++;
+  for (const c of S.creatures) (c.g.diet < 0.45 ? herb++ : carn++);
+  const h = S.hist;
+  h.t.push(S.tick); h.plant.push(plant); h.herb.push(herb); h.carn.push(carn);
+  if (h.t.length > 400) { h.t.shift(); h.plant.shift(); h.herb.shift(); h.carn.shift(); }
+}
+
+function seedPopulation(n) {
+  for (let i = 0; i < n; i++) {
+    const g = randomGenome();
+    S.creatures.push(newCreature(g,
+      30 + Math.random() * (WORLD_W - 60),
+      30 + Math.random() * (WORLD_H - 60),
+      55 + Math.random() * 30, 0));
+  }
+}
+
+function reset() {
+  S.tick = 0; S.creatures = []; S.foods = []; S.births = [];
+  S.plantAcc = 0; S.maxGen = 0; S.selected = null;
+  S.hist = { t: [], plant: [], herb: [], carn: [] };
+  S.events = [];
+  for (let i = 0; i < 450; i++) spawnPlant();
+  seedPopulation(80);
+  logEvent('새로운 세계가 시작되었습니다 — 무작위 뇌 80개체');
+}
+
+function step() {
+  const st = S.settings;
+  S.tick++;
+  /* 식물 생장 */
+  S.plantAcc += st.plantRate;
+  let plantCount = 0;
+  for (const f of S.foods) if (!f.meat) plantCount++;
+  while (S.plantAcc >= 1) {
+    S.plantAcc--;
+    if (plantCount < st.maxPlants) { spawnPlant(); plantCount++; }
+  }
+  /* 그리드 갱신 */
+  foodGrid.clear();
+  for (const f of S.foods) foodGrid.insert(f);
+  creGrid.clear();
+  for (const c of S.creatures) creGrid.insert(c);
+  /* 행동 */
+  S.births = [];
+  for (const c of S.creatures) if (!c.dead) updateCreature(c);
+  /* 사망 정리 */
+  for (let i = S.creatures.length - 1; i >= 0; i--) {
+    const c = S.creatures[i];
+    if (c.dead) {
+      dropMeat(c);
+      if (S.selected === c) S.selected = null;
+      S.creatures.splice(i, 1);
+    }
+  }
+  /* 먹힌 음식 정리 */
+  for (let i = S.foods.length - 1; i >= 0; i--)
+    if (S.foods[i].e <= 0) S.foods.splice(i, 1);
+  /* 출생 */
+  for (const b of S.births) S.creatures.push(b);
+  S.births = [];
+  /* 절멸 처리 */
+  if (S.creatures.length === 0 && st.autoRestock) {
+    logEvent('💀 절멸! 새 생명 50개체를 투입합니다');
+    seedPopulation(50);
+  }
+  /* 이주: 개체수가 적으면 외부에서 무작위 개체 유입 (유전 다양성 공급) */
+  if (st.autoRestock && S.creatures.length > 0 && S.creatures.length < 25 && S.tick % 180 === 0) {
+    seedPopulation(3);
+  }
+  if (S.tick % 30 === 0) sampleStats();
+  /* 이정표 */
+  if (S.tick % 5000 === 0) {
+    let carn = 0;
+    for (const c of S.creatures) if (c.g.diet >= 0.45) carn++;
+    logEvent(`${(S.tick / 1000)}k틱 — 개체 ${S.creatures.length}, 육식 ${carn}, 세대 ${S.maxGen}`);
+  }
+}
+
+/* ── 직렬화 ── */
+function serialize() {
+  return JSON.stringify({
+    v: 1, tick: S.tick, maxGen: S.maxGen, settings: S.settings,
+    foods: S.foods,
+    creatures: S.creatures.map(c => ({
+      g: c.g, x: c.x, y: c.y, dir: c.dir, energy: c.energy,
+      gen: c.gen, age: c.age, kills: c.kills, children: c.children
+    }))
+  });
+}
+function deserialize(json) {
+  const d = JSON.parse(json);
+  S.tick = d.tick; S.maxGen = d.maxGen;
+  Object.assign(S.settings, d.settings);
+  S.foods = d.foods; S.births = []; S.selected = null;
+  S.hist = { t: [], plant: [], herb: [], carn: [] };
+  S.events = [];
+  S.creatures = d.creatures.map(c => {
+    const n = newCreature(c.g, c.x, c.y, c.energy, c.gen);
+    n.dir = c.dir; n.age = c.age; n.kills = c.kills; n.children = c.children;
+    return n;
+  });
+  logEvent('저장된 세계를 불러왔습니다');
+}
+
+/* 헤드리스(Node) 검증용 내보내기 */
+if (typeof document === 'undefined') {
+  if (typeof module !== 'undefined') module.exports = { S, step, reset, BRAIN_LEN };
+} else {
+/* ════════════════════════════════════════════════════════════
+   2부. UI — 렌더링, 카메라, 차트, 인스펙터
+   ════════════════════════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+const cvs = $('world'), ctx = cvs.getContext('2d');
+const cam = { x: WORLD_W / 2, y: WORLD_H / 2, z: 0.45 };
+let paused = false, speedMult = 1, tool = 'select', follow = false;
+let dragging = false, dragMoved = false, lastPX = 0, lastPY = 0;
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cvs.clientWidth, h = cvs.clientHeight;
+  cvs.width = w * dpr; cvs.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+
+function screenToWorld(sx, sy) {
+  return [(sx - cvs.clientWidth / 2) / cam.z + cam.x, (sy - cvs.clientHeight / 2) / cam.z + cam.y];
+}
+
+/* ── 세계 렌더링 ── */
+function render() {
+  const w = cvs.clientWidth, h = cvs.clientHeight;
+  ctx.fillStyle = '#0b0e14';
+  ctx.fillRect(0, 0, w, h);
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(cam.z, cam.z);
+  ctx.translate(-cam.x, -cam.y);
+
+  /* 세계 경계 */
+  ctx.fillStyle = '#0e1320';
+  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  ctx.strokeStyle = '#2a3450';
+  ctx.lineWidth = 3 / cam.z;
+  ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
+
+  /* 음식 */
+  for (const f of S.foods) {
+    if (f.meat) {
+      ctx.fillStyle = '#b8434f';
+      ctx.fillRect(f.x - 2.6, f.y - 2.6, 5.2, 5.2);
+    } else {
+      ctx.fillStyle = '#3da866';
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, 2.6, 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  /* 생명체 */
+  for (const c of S.creatures) {
+    const g = c.g, r = 5 * g.size + 3;
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    /* 감각 범위 (선택 시) */
+    if (c === S.selected) {
+      ctx.strokeStyle = 'rgba(255,255,255,.18)';
+      ctx.lineWidth = 1.5 / cam.z;
+      ctx.beginPath(); ctx.arc(0, 0, g.sense, 0, 6.2832); ctx.stroke();
+    }
+    ctx.rotate(c.dir);
+    /* 몸통: 식성에 따라 밝기 변화 */
+    ctx.fillStyle = `hsl(${g.hue},65%,${48 + g.diet * 10}%)`;
+    ctx.beginPath();
+    ctx.moveTo(r * 1.35, 0);
+    ctx.lineTo(-r * 0.85, r * 0.8);
+    ctx.lineTo(-r * 0.45, 0);
+    ctx.lineTo(-r * 0.85, -r * 0.8);
+    ctx.closePath();
+    ctx.fill();
+    /* 식성 표시 점: 파랑(초식)→빨강(육식) */
+    ctx.fillStyle = `hsl(${(1 - g.diet) * 215},85%,62%)`;
+    ctx.beginPath(); ctx.arc(r * 0.25, 0, r * 0.32, 0, 6.2832); ctx.fill();
+    /* 물기 모션 */
+    if (c.bite > 12) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(r * 1.1, 0, r * 0.5, -1, 1); ctx.stroke();
+    }
+    ctx.rotate(-c.dir);
+    if (c === S.selected) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2 / cam.z;
+      ctx.beginPath(); ctx.arc(0, 0, r + 4, 0, 6.2832); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+/* ── 카메라/입력 ── */
+cvs.addEventListener('pointerdown', e => {
+  dragging = true; dragMoved = false;
+  lastPX = e.clientX; lastPY = e.clientY;
+  cvs.setPointerCapture(e.pointerId);
+});
+cvs.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastPX, dy = e.clientY - lastPY;
+  if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
+  if (dragMoved) { cam.x -= dx / cam.z; cam.y -= dy / cam.z; follow = false; $('chkFollow').checked = false; }
+  lastPX = e.clientX; lastPY = e.clientY;
+});
+cvs.addEventListener('pointerup', e => {
+  dragging = false;
+  if (dragMoved) return;
+  const rect = cvs.getBoundingClientRect();
+  const [wx, wy] = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  if (tool === 'plant') {
+    for (let i = 0; i < 30; i++)
+      spawnPlant(clamp(wx + gauss() * 50, 5, WORLD_W - 5), clamp(wy + gauss() * 50, 5, WORLD_H - 5));
+    logEvent('🌱 먹이가 뿌려졌습니다');
+  } else if (tool === 'zap') {
+    let n = 0;
+    for (const c of S.creatures) {
+      const d = Math.hypot(c.x - wx, c.y - wy);
+      if (d < 80) { c.dead = true; n++; }
+    }
+    if (n) logEvent(`⚡ 번개로 ${n}개체 사망`);
+  } else {
+    let best = null, bd = 18 / cam.z + 8;
+    for (const c of S.creatures) {
+      const d = Math.hypot(c.x - wx, c.y - wy);
+      if (d < bd) { bd = d; best = c; }
+    }
+    S.selected = best;
+    if (best) { setTab('insp'); }
+  }
+});
+cvs.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = cvs.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const [wx, wy] = screenToWorld(mx, my);
+  cam.z = clamp(cam.z * (e.deltaY < 0 ? 1.12 : 0.89), 0.15, 4);
+  const [nx, ny] = screenToWorld(mx, my);
+  cam.x += wx - nx; cam.y += wy - ny;
+}, { passive: false });
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target.tagName !== 'INPUT') { e.preventDefault(); togglePause(); }
+});
+
+/* ── 차트 ── */
+function drawLines(canvas, seriesList) {
+  const c2 = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  c2.clearRect(0, 0, w, h);
+  let max = 10;
+  for (const s of seriesList) for (const v of s.data) if (v > max) max = v;
+  c2.strokeStyle = '#222a3e'; c2.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    c2.beginPath(); c2.moveTo(0, h * i / 4); c2.lineTo(w, h * i / 4); c2.stroke();
+  }
+  for (const s of seriesList) {
+    const d = s.data, n = d.length;
+    if (n < 2) continue;
+    c2.strokeStyle = s.color; c2.lineWidth = 1.6;
+    c2.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = i / (n - 1) * (w - 4) + 2;
+      const y = h - 4 - (d[i] / max) * (h - 10);
+      i ? c2.lineTo(x, y) : c2.moveTo(x, y);
+    }
+    c2.stroke();
+  }
+  c2.fillStyle = '#8a93a8'; c2.font = '10px sans-serif';
+  c2.fillText(String(Math.round(max)), 4, 11);
+}
+function drawDietHist(canvas) {
+  const c2 = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  c2.clearRect(0, 0, w, h);
+  const bins = new Array(24).fill(0);
+  for (const c of S.creatures) bins[Math.min(23, (c.g.diet * 24) | 0)]++;
+  let max = 1;
+  for (const b of bins) if (b > max) max = b;
+  const bw = w / 24;
+  for (let i = 0; i < 24; i++) {
+    const t = i / 23;
+    c2.fillStyle = `hsl(${(1 - t) * 215},75%,58%)`;
+    const bh = (bins[i] / max) * (h - 8);
+    c2.fillRect(i * bw + 1, h - bh, bw - 2, bh);
+  }
+}
+function drawTraitMap(canvas) {
+  const c2 = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  c2.clearRect(0, 0, w, h);
+  c2.strokeStyle = '#222a3e';
+  c2.strokeRect(0.5, 0.5, w - 1, h - 1);
+  for (const c of S.creatures) {
+    const g = c.g;
+    const x = (g.speed - 0.6) / 3.4 * (w - 12) + 6;
+    const y = h - 6 - (g.size - 0.5) / 1.5 * (h - 12);
+    c2.fillStyle = `hsla(${(1 - g.diet) * 215},80%,60%,.75)`;
+    c2.beginPath(); c2.arc(x, y, 2.4, 0, 6.2832); c2.fill();
+  }
+  c2.fillStyle = '#566'; c2.font = '9px sans-serif';
+  c2.fillText('느림 → 빠름', w / 2 - 24, h - 3);
+  c2.save(); c2.translate(8, h / 2 + 20); c2.rotate(-Math.PI / 2);
+  c2.fillText('작음 → 큼', 0, 0); c2.restore();
+}
+
+/* ── 뇌 시각화 ── */
+const IN_LABELS = ['편향', '에너지', '먹이∠s', '먹이∠c', '먹이거리', '이웃∠s', '이웃∠c', '이웃거리', '크기비', '이웃식성', '리듬', '먹이종류'];
+const OUT_LABELS = ['회전', '추진'];
+function drawBrain(canvas, c) {
+  const c2 = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  c2.clearRect(0, 0, w, h);
+  const g = c.g, act = c.act;
+  const xi = 52, xh = 158, xo = 234;
+  const yi = i => 12 + i * (h - 24) / (N_IN - 1);
+  const yh = j => 24 + j * (h - 48) / (N_H - 1);
+  const yo = k => h / 2 + (k - 0.5) * 50;
+  /* 연결선 */
+  let p = 0;
+  for (let j = 0; j < N_H; j++) {
+    for (let i = 0; i < N_IN; i++) {
+      const wt = g.brain[p++];
+      const a = Math.min(0.85, Math.abs(wt) * 0.45 * Math.abs(act.in[i]));
+      if (a < 0.04) continue;
+      c2.strokeStyle = wt > 0 ? `rgba(90,160,255,${a})` : `rgba(255,110,110,${a})`;
+      c2.lineWidth = Math.min(2.4, Math.abs(wt));
+      c2.beginPath(); c2.moveTo(xi, yi(i)); c2.lineTo(xh, yh(j)); c2.stroke();
+    }
+    p++; // bias
+  }
+  for (let k = 0; k < N_OUT; k++) {
+    for (let j = 0; j < N_H; j++) {
+      const wt = g.brain[p++];
+      const a = Math.min(0.9, Math.abs(wt) * 0.5 * Math.abs(act.h[j]));
+      if (a < 0.04) continue;
+      c2.strokeStyle = wt > 0 ? `rgba(90,160,255,${a})` : `rgba(255,110,110,${a})`;
+      c2.lineWidth = Math.min(2.6, Math.abs(wt));
+      c2.beginPath(); c2.moveTo(xh, yh(j)); c2.lineTo(xo, yo(k)); c2.stroke();
+    }
+    p++;
+  }
+  /* 노드 */
+  c2.font = '8.5px sans-serif';
+  for (let i = 0; i < N_IN; i++) {
+    const v = clamp(Math.abs(act.in[i]), 0, 1);
+    c2.fillStyle = `hsl(${act.in[i] >= 0 ? 215 : 0},70%,${25 + v * 45}%)`;
+    c2.beginPath(); c2.arc(xi, yi(i), 4, 0, 6.2832); c2.fill();
+    c2.fillStyle = '#8a93a8';
+    c2.textAlign = 'right';
+    c2.fillText(IN_LABELS[i], xi - 8, yi(i) + 3);
+  }
+  for (let j = 0; j < N_H; j++) {
+    const v = clamp(Math.abs(act.h[j]), 0, 1);
+    c2.fillStyle = `hsl(${act.h[j] >= 0 ? 215 : 0},70%,${25 + v * 45}%)`;
+    c2.beginPath(); c2.arc(xh, yh(j), 4.5, 0, 6.2832); c2.fill();
+  }
+  for (let k = 0; k < N_OUT; k++) {
+    const v = clamp(Math.abs(Math.tanh(act.o[k])), 0, 1);
+    c2.fillStyle = `hsl(${act.o[k] >= 0 ? 215 : 0},70%,${28 + v * 45}%)`;
+    c2.beginPath(); c2.arc(xo, yo(k), 5.5, 0, 6.2832); c2.fill();
+    c2.fillStyle = '#dde3f0';
+    c2.textAlign = 'left';
+    c2.fillText(OUT_LABELS[k], xo + 9, yo(k) + 3);
+  }
+}
+
+/* ── 인스펙터 ── */
+function updateInspector() {
+  const c = S.selected;
+  $('insp-empty').style.display = c ? 'none' : 'block';
+  $('insp-body').style.display = c ? 'block' : 'none';
+  if (!c) return;
+  const g = c.g;
+  $('insp-swatch').style.background = `hsl(${g.hue},65%,52%)`;
+  $('insp-title').textContent = `개체 #${c.id}`;
+  $('insp-sub').textContent = `${c.gen}세대 · ${g.diet < 0.3 ? '초식' : g.diet < 0.6 ? '잡식' : '육식'} 성향`;
+  $('iAge').textContent = c.age;
+  $('iKills').textContent = c.kills;
+  $('iKids').textContent = c.children;
+  $('iEnergy').textContent = `${Math.round(c.energy)} / ${Math.round(c.maxE)}`;
+  $('bEnergy').style.width = (c.energy / c.maxE * 100) + '%';
+  $('iDiet').textContent = (g.diet * 100).toFixed(0) + '% 육식';
+  $('bDiet').style.width = (g.diet * 100) + '%';
+  $('iSize').textContent = g.size.toFixed(2);
+  $('bSize').style.width = ((g.size - 0.5) / 1.5 * 100) + '%';
+  $('iSpeed').textContent = g.speed.toFixed(2);
+  $('bSpeed').style.width = ((g.speed - 0.6) / 3.4 * 100) + '%';
+  $('iSense').textContent = Math.round(g.sense);
+  $('bSense').style.width = ((g.sense - 35) / 135 * 100) + '%';
+  drawBrain($('brainCanvas'), c);
+}
+
+/* ── 통계 갱신 ── */
+function updateStats() {
+  let herb = 0, carn = 0, plant = 0;
+  for (const c of S.creatures) (c.g.diet < 0.45 ? herb++ : carn++);
+  for (const f of S.foods) if (!f.meat) plant++;
+  $('sTick').textContent = S.tick.toLocaleString();
+  $('sPop').textContent = S.creatures.length;
+  $('sHerb').textContent = herb;
+  $('sCarn').textContent = carn;
+  $('sPlant').textContent = plant;
+  $('sGen').textContent = S.maxGen;
+  if ($('p-stats').classList.contains('on')) {
+    drawLines($('popChart'), [
+      { data: S.hist.plant.map(v => v / 8), color: '#4cd17e' },
+      { data: S.hist.herb, color: '#6db1ff' },
+      { data: S.hist.carn, color: '#ff6b6b' }
+    ]);
+    drawDietHist($('dietChart'));
+    drawTraitMap($('traitChart'));
+    $('log').innerHTML = S.events.slice().reverse()
+      .map(e => `<div><span class="t">${e.t.toLocaleString()}</span>${e.msg}</div>`).join('');
+  }
+  if ($('p-insp').classList.contains('on')) updateInspector();
+}
+
+/* ── 탭/버튼 ── */
+function setTab(name) {
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.p === name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + name));
+}
+document.querySelectorAll('#tabs button').forEach(b =>
+  b.addEventListener('click', () => setTab(b.dataset.p)));
+
+function togglePause() {
+  paused = !paused;
+  $('btnPause').textContent = paused ? '▶ 재생' : '⏸ 일시정지';
+  $('btnPause').classList.toggle('on', paused);
+}
+$('btnPause').addEventListener('click', togglePause);
+
+document.querySelectorAll('.spd').forEach(b => b.addEventListener('click', () => {
+  speedMult = +b.dataset.s;
+  document.querySelectorAll('.spd').forEach(x => x.classList.toggle('on', x === b));
+}));
+document.querySelectorAll('.tool').forEach(b => b.addEventListener('click', () => {
+  tool = b.dataset.t;
+  document.querySelectorAll('.tool').forEach(x => x.classList.toggle('on', x === b));
+  cvs.style.cursor = tool === 'select' ? 'crosshair' : 'pointer';
+}));
+
+$('btnReset').addEventListener('click', () => {
+  if (confirm('세계를 초기화할까요? 현재 진화는 사라집니다.')) reset();
+});
+$('btnSave').addEventListener('click', () => {
+  const blob = new Blob([serialize()], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `진화의정원_${S.tick}틱.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+$('btnLoad').addEventListener('click', () => $('fileLoad').click());
+$('fileLoad').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => { try { deserialize(rd.result); syncSettingsUI(); } catch (err) { alert('파일을 읽을 수 없습니다: ' + err.message); } };
+  rd.readAsText(f);
+  e.target.value = '';
+});
+$('chkFollow').addEventListener('change', e => follow = e.target.checked);
+
+/* ── 설정 슬라이더 ── */
+function bindSlider(rid, vid, key, fmt) {
+  const r = $(rid), v = $(vid);
+  r.addEventListener('input', () => {
+    S.settings[key] = +r.value;
+    v.textContent = fmt(+r.value);
+  });
+}
+bindSlider('rPlant', 'vPlant', 'plantRate', x => x.toFixed(1));
+bindSlider('rMaxP', 'vMaxP', 'maxPlants', x => x);
+bindSlider('rMut', 'vMut', 'mutRate', x => (x * 100).toFixed(0) + '%');
+bindSlider('rCap', 'vCap', 'popCap', x => x);
+$('chkRestock').addEventListener('change', e => S.settings.autoRestock = e.target.checked);
+function syncSettingsUI() {
+  $('rPlant').value = S.settings.plantRate; $('vPlant').textContent = S.settings.plantRate.toFixed(1);
+  $('rMaxP').value = S.settings.maxPlants; $('vMaxP').textContent = S.settings.maxPlants;
+  $('rMut').value = S.settings.mutRate; $('vMut').textContent = (S.settings.mutRate * 100).toFixed(0) + '%';
+  $('rCap').value = S.settings.popCap; $('vCap').textContent = S.settings.popCap;
+  $('chkRestock').checked = S.settings.autoRestock;
+}
+
+/* ── 메인 루프 ── */
+let frameCount = 0;
+function loop() {
+  if (!paused) {
+    for (let i = 0; i < speedMult; i++) step();
+  }
+  if (follow && S.selected) { cam.x = S.selected.x; cam.y = S.selected.y; }
+  render();
+  if (++frameCount % 4 === 0) updateStats();
+  requestAnimationFrame(loop);
+}
+
+/* ── 시작 ── */
+resize();
+reset();
+syncSettingsUI();
+updateStats();
+loop();
+} /* end DOM branch */
+</script>
+</body>
+</html>
