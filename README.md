@@ -1,5 +1,7 @@
 # 진화의 정원 (Garden of Evolution)
 
+🇰🇷 한국어 · 🇬🇧 [English](README.en.md)
+
 **아무도 가르치지 않은 신경망이 스스로 사냥을 배우는 인공생명 생태계 시뮬레이터.** 모든 개체는 137개 가중치의 작은 신경망(뇌)을 갖고 태어나고, 돌연변이와 자연선택만으로 먹이 추적·종 분화(초식 → 포식자)·포식자-피식자 진동이 창발합니다. 순수 바닐라 JavaScript + Canvas 2D, **단일 HTML 파일 하나**입니다.
 
 **[▶ 브라우저에서 바로 실행](https://moriochoradio.github.io/evolution-garden/)** — 설치·빌드 없음
