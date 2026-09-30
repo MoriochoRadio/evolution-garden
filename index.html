@@ -519,16 +519,39 @@ function serialize() {
 }
 function deserialize(json) {
   const d = JSON.parse(json);
-  S.tick = d.tick; S.maxGen = d.maxGen;
-  Object.assign(S.settings, d.settings);
-  S.foods = d.foods; S.births = []; S.selected = null;
-  S.hist = { t: [], plant: [], herb: [], carn: [] };
-  S.events = [];
-  S.creatures = d.creatures.map(c => {
+  /* 먼저 전부 검사하고, 통과했을 때만 한꺼번에 바꾼다 — 손상된 파일이 세계를 반쯤 바꿔 놓지 않게 */
+  const num = v => typeof v === 'number' && Number.isFinite(v);
+  const bad = what => { throw new Error('저장 파일 형식이 올바르지 않습니다 (' + what + ')'); };
+  if (!d || typeof d !== 'object' || d.v !== 1) bad('버전');
+  if (!num(d.tick) || !num(d.maxGen)) bad('tick');
+  if (!d.settings || typeof d.settings !== 'object') bad('settings');
+  const settings = {};
+  for (const k of Object.keys(S.settings)) {
+    if (!(k in d.settings)) continue;
+    const v = d.settings[k];
+    if (typeof v !== typeof S.settings[k] || (typeof v === 'number' && !Number.isFinite(v))) bad('settings.' + k);
+    settings[k] = v;
+  }
+  if (!Array.isArray(d.foods) ||
+      !d.foods.every(f => f && num(f.x) && num(f.y) && num(f.e) && typeof f.meat === 'boolean')) bad('foods');
+  const GENES = ['hue', 'size', 'speed', 'sense', 'diet', 'reproT'];
+  const FIELDS = ['x', 'y', 'dir', 'energy', 'gen', 'age', 'kills', 'children'];
+  if (!Array.isArray(d.creatures) ||
+      !d.creatures.every(c => c && c.g && typeof c.g === 'object' &&
+        FIELDS.every(k => num(c[k])) && GENES.every(k => num(c.g[k])) &&
+        Array.isArray(c.g.brain) && c.g.brain.length === BRAIN_LEN && c.g.brain.every(num))) bad('creatures');
+
+  const creatures = d.creatures.map(c => {
     const n = newCreature(c.g, c.x, c.y, c.energy, c.gen);
     n.dir = c.dir; n.age = c.age; n.kills = c.kills; n.children = c.children;
     return n;
   });
+  S.tick = d.tick; S.maxGen = d.maxGen;
+  Object.assign(S.settings, settings);
+  S.foods = d.foods; S.births = []; S.selected = null;
+  S.hist = { t: [], plant: [], herb: [], carn: [] };
+  S.events = [];
+  S.creatures = creatures;
   logEvent('저장된 세계를 불러왔습니다');
 }
 
